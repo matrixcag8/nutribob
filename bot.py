@@ -50,6 +50,42 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                user_id    INTEGER PRIMARY KEY,
+                weight_kg  REAL    NOT NULL,
+                updated_at TEXT    NOT NULL
+            )
+            """
+        )
+
+
+def db_set_weight(user_id: int, weight_kg: float) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO users (user_id, weight_kg, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET weight_kg=excluded.weight_kg, updated_at=excluded.updated_at
+            """,
+            (user_id, weight_kg, _now_str()),
+        )
+
+
+def db_get_weight(user_id: int) -> Optional[float]:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT weight_kg FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return row[0] if row else None
+
+
+def _calorie_target(weight_kg: Optional[float]) -> int:
+    """Rough daily kcal target: weight × 33 (sedentary adult)."""
+    if weight_kg:
+        return round(weight_kg * 33)
+    return 2000
 
 
 def _now_str() -> str:
@@ -268,15 +304,15 @@ def estimate_calories(raw_text: str) -> Optional[dict]:
 # ── FORMATTING ────────────────────────────────────────────────────────────────
 
 
-def _calories_bar(total: int) -> str:
-    """Visual progress bar toward ~2000 kcal target."""
-    pct = min(total / 2000, 1.0)
+def _calories_bar(total: int, target: int) -> str:
+    """Visual progress bar toward the user's daily calorie target."""
+    pct = min(total / target, 1.0)
     filled = round(pct * 10)
     bar = "█" * filled + "░" * (10 - filled)
-    return f"`[{bar}]` {round(pct * 100)}%"
+    return f"`[{bar}]` {total}/{target} kcal ({round(pct * 100)}%)"
 
 
-def format_diary(rows: list, label: str) -> str:
+def format_diary(rows: list, label: str, target: int) -> str:
     if not rows:
         return f"📭 Nessuna voce per {label}."
 
@@ -287,30 +323,34 @@ def format_diary(rows: list, label: str) -> str:
         lines.append(f"{i}. *{food}* — {cal} kcal  _{qty}_  `{time_str}`")
         total += cal
 
-    lines.append(f"\n🔥 *Totale: {total} kcal*")
-    lines.append(_calories_bar(total))
+    lines.append(f"\n🔥 *Totale: {total} kcal* (obiettivo: {target} kcal)")
+    lines.append(_calories_bar(total, target))
 
-    if total < 1200:
+    if total < round(target * 0.55):
         lines.append("⚠️ _Sotto il fabbisogno minimo — ricorda di mangiare abbastanza!_")
-    elif total > 2500:
-        lines.append("⚠️ _Sopra il fabbisogno tipico_")
+    elif total > round(target * 1.20):
+        lines.append("⚠️ _Sopra l'obiettivo giornaliero_")
     else:
         lines.append("✅ _Nel range consigliato_")
 
     return "\n".join(lines)
 
 
-# ── PENDING ENTRIES (in-memory per user) ─────────────────────────────────────
+# ── IN-MEMORY STATE ──────────────────────────────────────────────────────────
 
 _pending: dict[int, dict] = {}
+_awaiting_weight: set = set()  # user_ids currently in weight-setup flow
 
 # ── HANDLERS ──────────────────────────────────────────────────────────────────
 
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = (
-        "👋 Ciao! Sono *NutriBob*, il tuo diario alimentare personale.\n\n"
-        "Dimmi cosa hai mangiato e stimo le calorie, ad esempio:\n"
+def _welcome_text(weight_kg: Optional[float]) -> str:
+    target = _calorie_target(weight_kg)
+    weight_line = f"⚖️ Peso: *{weight_kg} kg* — obiettivo: *{target} kcal/giorno*" if weight_kg else ""
+    return (
+        "👋 Ciao! Sono *NutriBob*, il tuo diario alimentare personale.\n"
+        + (weight_line + "\n" if weight_line else "")
+        + "\nDimmi cosa hai mangiato e stimo le calorie, ad esempio:\n"
         "• `pasta al pomodoro`\n"
         "• `200g di petto di pollo`\n"
         "• `due mele`\n"
@@ -319,24 +359,62 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/oggi — diario di oggi\n"
         "/ieri — diario di ieri\n"
         "/settimana — riepilogo ultimi 7 giorni\n"
+        "/profilo — mostra o aggiorna il tuo peso\n"
         "/cancella — elimina l'ultima voce\n"
         "/reset — svuota il diario di oggi\n"
         "/help — mostra questo messaggio"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    weight = db_get_weight(user_id)
+    if weight is None:
+        _awaiting_weight.add(user_id)
+        await update.message.reply_text(
+            "👋 Ciao! Sono *NutriBob*, il tuo diario alimentare personale.\n\n"
+            "Prima di iniziare, dimmi il tuo *peso corporeo in kg* "
+            "(es. `75` oppure `68.5`) così personalizzo il tuo obiettivo calorico:",
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(_welcome_text(weight), parse_mode="Markdown")
+
+
+async def cmd_profilo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    weight = db_get_weight(user_id)
+    if weight is None:
+        _awaiting_weight.add(user_id)
+        await update.message.reply_text(
+            "⚖️ Non ho ancora il tuo peso. Mandami il peso in kg (es. `75`):",
+            parse_mode="Markdown",
+        )
+    else:
+        target = _calorie_target(weight)
+        _awaiting_weight.add(user_id)
+        await update.message.reply_text(
+            f"⚖️ Peso attuale: *{weight} kg* — obiettivo: *{target} kcal/giorno*\n\n"
+            "Mandami il nuovo peso in kg per aggiornarlo, o /annulla per uscire:",
+            parse_mode="Markdown",
+        )
 
 
 async def cmd_oggi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    rows = db_get_day(update.effective_user.id, date.today())
+    uid = update.effective_user.id
+    rows = db_get_day(uid, date.today())
+    target = _calorie_target(db_get_weight(uid))
     today_label = "oggi (" + date.today().strftime("%d/%m/%Y") + ")"
-    await update.message.reply_text(format_diary(rows, today_label), parse_mode="Markdown")
+    await update.message.reply_text(format_diary(rows, today_label, target), parse_mode="Markdown")
 
 
 async def cmd_ieri(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
     yesterday = date.today() - timedelta(days=1)
-    rows = db_get_day(update.effective_user.id, yesterday)
+    rows = db_get_day(uid, yesterday)
+    target = _calorie_target(db_get_weight(uid))
     label = "ieri (" + yesterday.strftime("%d/%m/%Y") + ")"
-    await update.message.reply_text(format_diary(rows, label), parse_mode="Markdown")
+    await update.message.reply_text(format_diary(rows, label, target), parse_mode="Markdown")
 
 
 async def cmd_settimana(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -387,6 +465,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
+    # ── weight setup flow ────────────────────────────────────────────────────
+    if user_id in _awaiting_weight:
+        # allow /annulla to exit
+        if text.lstrip("/").lower() == "annulla":
+            _awaiting_weight.discard(user_id)
+            await update.message.reply_text("OK, nessuna modifica al peso.")
+            return
+        try:
+            weight = float(text.replace(",", "."))
+            if not (20 <= weight <= 300):
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text(
+                "⚠️ Inserisci un numero valido in kg (es. `75` oppure `68.5`):",
+                parse_mode="Markdown",
+            )
+            return
+        db_set_weight(user_id, weight)
+        _awaiting_weight.discard(user_id)
+        target = _calorie_target(weight)
+        await update.message.reply_text(
+            f"✅ Peso salvato: *{weight} kg*\n"
+            f"🎯 Obiettivo calorico giornaliero: *{target} kcal*\n\n"
+            + _welcome_text(weight),
+            parse_mode="Markdown",
+        )
+        return
+    # ────────────────────────────────────────────────────────────────────────
+
     result = estimate_calories(text)
 
     if result is None:
@@ -433,11 +540,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Show running total for today
         rows = db_get_day(user_id, date.today())
         total = sum(r[2] for r in rows)
+        target = _calorie_target(db_get_weight(user_id))
         await query.edit_message_text(
             f"✅ *{entry['food']}* aggiunto!\n"
             f"🔥 {entry['calories']} kcal — {entry['qty_desc']}\n\n"
-            f"📊 Totale di oggi: *{total} kcal*\n"
-            f"Usa /oggi per vedere il diario completo.",
+            f"📊 Totale di oggi: *{total}/{target} kcal*\n"
+            + _calories_bar(total, target) + "\n"
+            "Usa /oggi per vedere il diario completo.",
             parse_mode="Markdown",
         )
 
@@ -464,6 +573,7 @@ def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler(["start", "help"], cmd_start))
+    app.add_handler(CommandHandler("profilo", cmd_profilo))
     app.add_handler(CommandHandler("oggi", cmd_oggi))
     app.add_handler(CommandHandler("ieri", cmd_ieri))
     app.add_handler(CommandHandler("settimana", cmd_settimana))
