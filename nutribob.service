@@ -1,0 +1,15 @@
+[Unit]
+Description=NutriBob Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/nutribob
+Environment="BOT_TOKEN=8696143865:AAFNyzAzn5UifkPJ1sfY7_bLcWXkBFQsE1I"
+ExecStart=/home/ubuntu/nutribob/.venv/bin/python bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

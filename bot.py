@@ -317,6 +317,12 @@ def _lookup(food_name: str) -> Optional[tuple]:
     return None
 
 
+def _split_multi(text: str) -> list[str]:
+    """Split a user message into individual food items (comma, semicolon, newline)."""
+    parts = re.split(r"[,;\n]+", text)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def estimate_calories(raw_text: str) -> Optional[dict]:
     """Main entry point: parse text → calorie info dict or None."""
     food_name, quantity, unit = _parse_input(raw_text)
@@ -400,11 +406,12 @@ def _welcome_text(weight_kg: Optional[float], goal: str = "main") -> str:
     return (
         "👋 Ciao! Sono *NutriBob*, il tuo diario alimentare personale.\n"
         + (profile_line + "\n" if profile_line else "")
-        + "\nDimmi cosa hai mangiato e stimo le calorie, ad esempio:\n"
-        "• `pasta al pomodoro`\n"
-        "• `200g di petto di pollo`\n"
-        "• `due mele`\n"
-        "• `un cappuccino`\n\n"
+        + "\n*Dimmi cosa hai mangiato e stimo le calorie, ad esempio:*\n"
+        "🍝 • `pasta al pomodoro`\n"
+        "🍗 • `200g di petto di pollo`\n"
+        "🍎 • `due mele`\n"
+        "☕ • `un cappuccino`\n"
+        "🛒 • `pasta, pollo, una mela` — più alimenti insieme\n\n"
         "📋 *Comandi:*\n"
         "/oggi — diario di oggi\n"
         "/ieri — diario di ieri\n"
@@ -555,6 +562,53 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     # ────────────────────────────────────────────────────────────────────────
 
+    parts = _split_multi(text)
+
+    if len(parts) > 1:
+        # ── multi-food path ──────────────────────────────────────────────────
+        recognized = []
+        failed = []
+        for part in parts:
+            r = estimate_calories(part)
+            if r:
+                recognized.append(r)
+            else:
+                failed.append(part)
+
+        if not recognized:
+            await update.message.reply_text(
+                "🤔 Non ho riconosciuto nessuno degli alimenti nel mio database.\n\n"
+                "Prova a essere più specifico, per esempio:\n"
+                "• `pasta al pomodoro, 200g pollo, una mela`",
+                parse_mode="Markdown",
+            )
+            return
+
+        _pending[user_id] = recognized
+        total_kcal = sum(r["calories"] for r in recognized)
+
+        lines = [f"🛒 *{len(recognized)} alimenti riconosciuti:*\n"]
+        for r in recognized:
+            emoji = _food_emoji(r["food"])
+            lines.append(f"{emoji} *{r['food']}* — {r['calories']} kcal  _{r['qty_desc']}_")
+        if failed:
+            lines.append(f"\n⚠️ Non riconosciuti: {', '.join(failed)}")
+        lines.append(f"\n🔥 *Totale: {total_kcal} kcal*")
+
+        kb = InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton("✅ Aggiungi tutti al diario", callback_data="entry_yes"),
+                InlineKeyboardButton("❌ Annulla", callback_data="entry_no"),
+            ]]
+        )
+        await update.message.reply_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=kb,
+        )
+        return
+    # ── single-food path ─────────────────────────────────────────────────────
+
     result = estimate_calories(text)
 
     if result is None:
@@ -597,15 +651,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not entry:
             await query.edit_message_text("⚠️ Sessione scaduta, inviami di nuovo il messaggio.")
             return
-        db_add_entry(user_id, entry["food"], entry["calories"], entry["qty_desc"])
+        entries = entry if isinstance(entry, list) else [entry]
+        for e in entries:
+            db_add_entry(user_id, e["food"], e["calories"], e["qty_desc"])
         # Show running total for today
         rows = db_get_day(user_id, date.today())
         total = sum(r[2] for r in rows)
         target = _user_target(user_id)
+        if len(entries) == 1:
+            e = entries[0]
+            added_summary = f"✅ *{e['food']}* aggiunto!\n🔥 {e['calories']} kcal — {e['qty_desc']}\n\n"
+        else:
+            total_added = sum(e["calories"] for e in entries)
+            added_summary = f"✅ *{len(entries)} alimenti* aggiunti! (+{total_added} kcal)\n\n"
         await query.edit_message_text(
-            f"✅ *{entry['food']}* aggiunto!\n"
-            f"🔥 {entry['calories']} kcal — {entry['qty_desc']}\n\n"
-            f"📊 Totale di oggi: *{total}/{target} kcal*\n"
+            added_summary
+            + f"📊 Totale di oggi: *{total}/{target} kcal*\n"
             + _calories_bar(total, target) + "\n"
             "Usa /oggi per vedere il diario completo.",
             parse_mode="Markdown",
