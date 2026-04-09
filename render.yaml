@@ -2,7 +2,7 @@ services:
   - type: worker
     name: nutribob
     runtime: python
-    repo: https://github.com/matrixcag8/telegrambot
+    repo: https://github.com/matrixcag8/nutribob
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
