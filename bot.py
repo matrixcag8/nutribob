@@ -445,6 +445,7 @@ def _welcome_text(weight_kg: Optional[float], goal: str = "main") -> str:
         "/cancella — elimina l'ultima voce\n"
         "/reset — svuota il diario di oggi\n"
         "/tabella — guida alle unità di misura\n"
+        "/consigli — alimenti consigliati\n"
         "/help — mostra questo messaggio"
     )
 
@@ -540,6 +541,40 @@ async def cmd_cancella(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
     else:
         await update.message.reply_text("📭 Nessuna voce da eliminare.")
+
+
+async def cmd_consigli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🥗 *Consigli alimentari*\n\n"
+        "🥩 *Carne e Proteine Animali*\n"
+        "• Manzo: tagli magri come scamone o filetto\n"
+        "• Bisonte, agnello, cervo, capra\n"
+        "• Carne macinata magra\n"
+        "• Pesce grasso: salmone, trota, sardine e acciughe _(almeno 2× settimana)_\n"
+        "• Uova intere o tuorli _(colina e vitamina K2)_\n"
+        "• Pollame: pollo e tacchino\n\n"
+        "🍚 *Carboidrati e Cereali*\n"
+        "• Riso bianco: basmati, jasmine o chicco lungo\n"
+        "• Tuberi: patate bianche e patate dolci _(potassio)_\n"
+        "• Pane a lievitazione naturale — sourdough/pasta madre, senza bromuro\n\n"
+        "🥦 *Verdure*\n"
+        "• Carote crude quotidianamente\n"
+        "• Spinaci, peperoni, zucchine, cetrioli, pomodori, melanzane, zucca, sedano\n\n"
+        "🍊 *Frutta*\n"
+        "• Agrumi: arance, mandarini, limoni e lime\n"
+        "• Frutti di bosco: mirtilli, fragole e lamponi\n"
+        "• Frutta succosa: melone, cantalupo, kiwi e ananas\n\n"
+        "🧀 *Latticini e Grassi*\n"
+        "• Yogurt greco intero o 2%, formaggi stagionati _(cheddar, parmigiano, svizzero)_, latte intero\n"
+        "• Grassi da cucina: burro grass-fed, ghee, sevo di bue\n"
+        "• Oli: avocado e cocco\n"
+        "• Frutta a guscio: mandorle _(ammollate/germogliate)_ e noci di macadamia\n\n"
+        "💧 *Liquidi e Condimenti*\n"
+        "• Brodo di ossa o brodo di pollo ricco di collagene\n"
+        "• Sale iodato _(funzione tiroidea)_, sale rosa dell'Himalaya o sale marino integrale\n"
+        "• Succo di mirtillo rosso puro _(senza zuccheri aggiunti)_ e succo d'arancia senza polpa",
+        parse_mode="Markdown",
+    )
 
 
 async def cmd_tabella(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -780,6 +815,7 @@ def main() -> None:
     app.add_handler(CommandHandler("cancella", cmd_cancella))
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("tabella", cmd_tabella))
+    app.add_handler(CommandHandler("consigli", cmd_consigli))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
