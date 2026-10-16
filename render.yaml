@@ -1,0 +1,16 @@
+services:
+  - type: worker
+    name: nutribob-v2
+    runtime: python
+    repo: https://github.com/matrixcag8/nutribob-v2
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false        # inserito manualmente nella dashboard Render
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: nutribob-data
+      mountPath: /var/data
+      sizeGB: 1
