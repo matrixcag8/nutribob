@@ -357,6 +357,9 @@ FOODS: dict[str, tuple[int, int, str]] = {
     "zucchero": (387, 10, "1 cucchiaino"),
     "miele": (304, 15, "1 cucchiaio"),
     "nutella": (547, 30, "2 cucchiaini"),
+    "crema novi": (550, 30, "2 cucchiaini"),
+    "biscotti weider": (470, 50, "1 biscotto"),
+    "kefir": (44, 200, "1 bicchiere"),
     "marmellata": (250, 20, "1 cucchiaino"),
     "aceto balsamico": (88, 15, "1 cucchiaio"),
     "senape": (66, 10, "1 cucchiaino"),
@@ -711,6 +714,9 @@ MACROS: dict[str, tuple[float, float, float]] = {
     "zucchero":              ( 0.0, 100.0,  0.0),
     "miele":                 ( 0.3,  82.0,  0.0),
     "nutella":               ( 6.0,  57.0, 31.0),
+    "crema novi":            (10.4, 42.7, 36.0),
+    "biscotti weider":       (24.0, 44.0, 22.0),
+    "kefir":                 ( 3.5,  4.0,  1.5),
 
     # ── DOLCI E SNACK ────────────────────────────────────────────
     "cioccolato":            ( 5.0, 60.0, 30.0),
